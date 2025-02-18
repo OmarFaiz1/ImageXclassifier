@@ -1,6 +1,7 @@
 Flask==2.2.5
-torch
+torch==2.0.1
 faiss-cpu==1.7.4
-clip-by-openai
+openai-clip==1.0.1  # Alternative package
 Pillow==10.0.1
-
+numpy==1.24.3
+gunicorn==20.1.0
