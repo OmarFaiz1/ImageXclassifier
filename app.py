@@ -11,18 +11,14 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from queue import Queue
 from waitress import serve
 from flask_cors import cross_origin
-from flask import Flask, request, jsonify
-from flask_cors import CORS  # Import CORS
 
-app = Flask(_name_)
+app = Flask(__name__)
 CORS(app, origins=["*"])
-
 
 # Alternatively, to enable CORS for only specific routes:
 # from flask_cors import cross_origin
 # @app.route('/api/predict', methods=['POST'])
 # @cross_origin()  # Enable CORS for just this route
-
 
 # Set environment variable to avoid OpenMP duplicate runtime warnings.
 os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'
@@ -36,7 +32,7 @@ PRODUCT_NAMES_FILE = "product_names.pkl"
 # ---------------------------
 # Flask App Configuration
 # ---------------------------
-app = Flask(_name_, template_folder="templates", static_folder="static")
+app = Flask(__name__, template_folder="templates", static_folder="static")
 app.secret_key = "replace_this_with_a_random_secret_key"  # Change for production
 
 # ---------------------------
@@ -257,8 +253,6 @@ def predict_route():
     return render_template("predict.html", result=result)
 
 # -------- New API Prediction Route (for client module) --------
-from flask_cors import cross_origin
-
 @app.route('/api/predict', methods=['POST'])
 @cross_origin(origin='localhost', headers=['Content-Type', 'Authorization'])  # Enable CORS for this route
 def api_predict():
