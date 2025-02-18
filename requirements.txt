@@ -1,8 +1,9 @@
 Flask==2.2.5
 torch==2.0.1
-torchvision==0.15.2  # Add torchvision
+torchvision==0.15.2
 faiss-cpu==1.7.4
 openai-clip==1.0.1
 Pillow==10.0.1
 numpy==1.24.3
 gunicorn==20.1.0
+waitress==2.1.2
