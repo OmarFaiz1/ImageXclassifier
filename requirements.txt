@@ -1,0 +1,7 @@
+Flask
+torch
+faiss-cpu
+clip-by-openai
+Pillow
+numpy
+gunicorn

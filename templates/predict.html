@@ -1,0 +1,21 @@
+{% extends "base.html" %} {% block content %}
+<h2 class="mb-4">Predict Clothing</h2>
+<form method="post" enctype="multipart/form-data">
+  <div class="mb-3">
+    <label for="test_image" class="form-label">Upload an Image:</label>
+    <input
+      type="file"
+      class="form-control"
+      name="test_image"
+      id="test_image"
+      accept="image/*"
+      required
+    />
+  </div>
+  <button type="submit" class="btn btn-success">Predict</button>
+</form>
+{% if result %}
+<div class="alert alert-info mt-4">
+  <h4>Predicted Cloth Name: {{ result }}</h4>
+</div>
+{% endif %} {% endblock %}

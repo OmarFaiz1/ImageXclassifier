@@ -1,0 +1,20 @@
+{% extends "base.html" %} {% block content %}
+<div class="text-center">
+  <h1 class="mb-4">Welcome to the Image Classifier</h1>
+  <p class="lead">
+    Train your model, make predictions, or unlearn a label quickly and
+    efficiently.
+  </p>
+  <div class="d-grid gap-2 col-6 mx-auto">
+    <a class="btn btn-primary" href="{{ url_for('train_route') }}"
+      >Train Model</a
+    >
+    <a class="btn btn-success" href="{{ url_for('predict_route') }}"
+      >Predict Clothing</a
+    >
+    <a class="btn btn-danger" href="{{ url_for('unlearn_route') }}"
+      >Unlearn a Label</a
+    >
+  </div>
+</div>
+{% endblock %}

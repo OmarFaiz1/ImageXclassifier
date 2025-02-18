@@ -1,0 +1,106 @@
+{% extends "base.html" %} {% block content %}
+<h2 class="mb-4">Train Your Model</h2>
+<div class="row">
+  <!-- Single Label Training -->
+  <div class="col-md-6">
+    <div class="card mb-4">
+      <div class="card-header">Single Label Training</div>
+      <div class="card-body">
+        <form
+          method="post"
+          enctype="multipart/form-data"
+          onsubmit="showLoading('single');"
+        >
+          <input type="hidden" name="train_mode" value="single" />
+          <div class="mb-3">
+            <label for="cloth_name" class="form-label">Cloth Name/Label:</label>
+            <input
+              type="text"
+              class="form-control"
+              name="cloth_name"
+              id="cloth_name"
+              required
+            />
+          </div>
+          <div class="mb-3">
+            <label for="train_images" class="form-label">Upload Images:</label>
+            <input
+              type="file"
+              class="form-control"
+              name="train_images"
+              id="train_images"
+              multiple
+              accept="image/*"
+              required
+            />
+          </div>
+          <button type="submit" class="btn btn-primary">
+            Upload and Train
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+  <!-- Bulk Training -->
+  <div class="col-md-6">
+    <div class="card mb-4">
+      <div class="card-header">Bulk Training</div>
+      <div class="card-body">
+        <form
+          method="post"
+          enctype="multipart/form-data"
+          onsubmit="showLoading('bulk');"
+        >
+          <input type="hidden" name="train_mode" value="bulk" />
+          <div class="mb-3">
+            <label class="form-label">Bulk Training Mode:</label><br />
+            <input
+              type="radio"
+              id="bulk_mode_subfolders"
+              name="bulk_mode"
+              value="subfolders"
+              checked
+            />
+            <label for="bulk_mode_subfolders"
+              >Upload a Folder (with subfolders as labels)</label
+            ><br />
+            <input
+              type="radio"
+              id="bulk_mode_single"
+              name="bulk_mode"
+              value="single"
+            />
+            <label for="bulk_mode_single"
+              >Single Folder (without subfolders)</label
+            >
+          </div>
+          <div class="mb-3">
+            <label for="bulk_files" class="form-label"
+              >Upload your folder (select the main folder):</label
+            >
+            <input
+              type="file"
+              class="form-control"
+              name="bulk_files"
+              id="bulk_files"
+              multiple
+              webkitdirectory
+              directory
+              accept="image/*"
+            />
+          </div>
+          <button type="submit" class="btn btn-primary">
+            Upload and Train Bulk
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+<div id="loadingMessage" class="text-center" style="display: none">
+  <div class="spinner-border text-primary" role="status">
+    <span class="visually-hidden">Loading...</span>
+  </div>
+  <p>Please wait...</p>
+</div>
+{% endblock %}
