@@ -6,10 +6,23 @@ import torch
 import faiss
 import clip
 from PIL import Image
-from flask import Flask, request, redirect, url_for, flash, render_template
+from flask import Flask, request, redirect, url_for, flash, render_template, jsonify
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from queue import Queue
 from waitress import serve
+from flask_cors import cross_origin
+from flask import Flask, request, jsonify
+from flask_cors import CORS  # Import CORS
+
+app = Flask(_name_)
+CORS(app, origins=["*"])
+
+
+# Alternatively, to enable CORS for only specific routes:
+# from flask_cors import cross_origin
+# @app.route('/api/predict', methods=['POST'])
+# @cross_origin()  # Enable CORS for just this route
+
 
 # Set environment variable to avoid OpenMP duplicate runtime warnings.
 os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'
@@ -23,7 +36,7 @@ PRODUCT_NAMES_FILE = "product_names.pkl"
 # ---------------------------
 # Flask App Configuration
 # ---------------------------
-app = Flask(__name__, template_folder="templates", static_folder="static")
+app = Flask(_name_, template_folder="templates", static_folder="static")
 app.secret_key = "replace_this_with_a_random_secret_key"  # Change for production
 
 # ---------------------------
@@ -225,16 +238,8 @@ def train_route():
     
     return render_template("train.html")
 
-# -------- Prediction Route --------
 @app.route('/predict', methods=['GET', 'POST'])
 def predict_route():
-    """
-    Prediction page:
-      - User uploads an image.
-      - The image embedding is computed and compared with training data via FAISS.
-      - If the best match's confidence is below 80%, the user is prompted for a name.
-      - Otherwise, the predicted label is returned.
-    """
     result = None
     if request.method == 'POST':
         file = request.files.get("test_image")
@@ -250,6 +255,27 @@ def predict_route():
             flash("The server is busy, please try again later.")
             return redirect(url_for('predict_route'))
     return render_template("predict.html", result=result)
+
+# -------- New API Prediction Route (for client module) --------
+from flask_cors import cross_origin
+
+@app.route('/api/predict', methods=['POST'])
+@cross_origin(origin='localhost', headers=['Content-Type', 'Authorization'])  # Enable CORS for this route
+def api_predict():
+    if 'test_image' not in request.files:
+        return jsonify({"error": "No image provided"}), 400
+    file = request.files.get("test_image")
+    if not file or file.filename == "":
+        return jsonify({"error": "No image selected"}), 400
+
+    future = executor.submit(process_image, file)
+    try:
+        result = future.result(timeout=30)
+    except TimeoutError:
+        return jsonify({"error": "The server is busy, please try again later."}), 500
+
+    return jsonify({"result": result})
+
 
 # -------- Unlearn Route --------
 @app.route('/unlearn', methods=['GET', 'POST'])
@@ -296,7 +322,7 @@ def unlearn_route():
 # ---------------------------
 # Main Entry Point
 # ---------------------------
-if __name__ == '__main__':
+if _name_ == '_main_':
     load_training_data()
     # Run without reloader to keep global variables persistent.
     app.run(debug=True, use_reloader=False)
