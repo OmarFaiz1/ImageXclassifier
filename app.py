@@ -7,6 +7,9 @@ import faiss
 import clip
 from PIL import Image
 from flask import Flask, request, redirect, url_for, flash, render_template
+from concurrent.futures import ThreadPoolExecutor, TimeoutError
+from queue import Queue
+from waitress import serve
 
 # Set environment variable to avoid OpenMP duplicate runtime warnings.
 os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'
@@ -31,9 +34,17 @@ model, preprocess = clip.load("ViT-B/32", device=device)
 embedding_dim = 512  # Embedding dimension for ViT-B/32
 
 # Create a FAISS index for fast similarity search.
-# If persisted data exists, it will be loaded later.
 index = faiss.IndexFlatL2(embedding_dim)
 product_names = []  # List of labels corresponding to training images.
+
+# ---------------------------
+# ThreadPoolExecutor for parallel image processing
+# ---------------------------
+MAX_WORKERS = 50  # Max workers for parallel users
+executor = ThreadPoolExecutor(max_workers=MAX_WORKERS)  # Set the limit to 50
+
+# Queue for rate-limiting (this is optional, depending on your needs)
+request_queue = Queue(maxsize=MAX_WORKERS)  # Set max concurrent users
 
 # ---------------------------
 # Persistence Functions
@@ -77,6 +88,24 @@ def compute_embedding(pil_image):
     return embedding / norm
 
 # ---------------------------
+# Image Processing for Prediction in a Separate Thread
+# ---------------------------
+def process_image(file):
+    image_bytes = file.read()
+    pil_image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+    user_embedding = compute_embedding(pil_image)
+    if index.ntotal == 0:
+        return "No training data available. Please train the model first!"
+    distances, indices = index.search(user_embedding, 1)
+    best_distance_sq = distances[0][0]
+    # For normalized embeddings, cosine similarity = 1 - (squared_distance/2)
+    confidence = 1 - (best_distance_sq / 2)
+    if confidence < 0.8:
+        return "Sorry, can't recognize the image. Can you please provide the name instead?"
+    match_index = indices.flatten()[0]
+    return product_names[match_index]
+
+# ---------------------------
 # Routes
 # ---------------------------
 @app.route('/')
@@ -89,11 +118,12 @@ def home():
 def train_route():
     """
     Training page offers:
-      - Single Label Training (enter label and upload images)
+      - Single Label Training (enter a label and upload one or more images)
       - Bulk Training with two modes:
-          • "Upload a Folder (with subfolders as labels)" – each file’s parent folder is used as the label.
-          • "Single Folder (without subfolders)" – the folder name is automatically extracted and used as the label.
+          • "single" bulk mode: all files come from one folder (the folder name is used as the label)
+          • "subfolders" mode: each file’s parent folder is used as the label
     """
+    global index, product_names
     if request.method == 'POST':
         train_mode = request.form.get("train_mode")
         if train_mode == "single":
@@ -130,7 +160,7 @@ def train_route():
             return redirect(url_for('train_route'))
         
         elif train_mode == "bulk":
-            bulk_mode = request.form.get("bulk_mode")  # "subfolders" or "single"
+            bulk_mode = request.form.get("bulk_mode")  # Expected: "subfolders" or "single"
             files = request.files.getlist("bulk_files")
             if not files or files[0].filename == "":
                 flash("Please upload a folder with images!")
@@ -138,7 +168,7 @@ def train_route():
             
             count = 0
             if bulk_mode == "single":
-                # Expect all files come from one folder.
+                # Expect all files come from one folder; extract folder name automatically.
                 folder_names = set()
                 for file in files:
                     if "/" in file.filename:
@@ -201,9 +231,8 @@ def predict_route():
     """
     Prediction page:
       - User uploads an image.
-      - The embedding is computed and compared with training data using FAISS.
-      - If the closest match’s confidence (computed via cosine similarity) is below 80%,
-        the app asks the user to provide the name instead.
+      - The image embedding is computed and compared with training data via FAISS.
+      - If the best match's confidence is below 80%, the user is prompted for a name.
       - Otherwise, the predicted label is returned.
     """
     result = None
@@ -212,37 +241,25 @@ def predict_route():
         if not file or file.filename == "":
             flash("Please upload an image for prediction!")
             return redirect(url_for('predict_route'))
+        
+        # Process image in a separate thread
+        future = executor.submit(process_image, file)
         try:
-            image_bytes = file.read()
-            pil_image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-            user_embedding = compute_embedding(pil_image)
-            if index.ntotal == 0:
-                flash("No training images available. Please train the model first!")
-                return redirect(url_for('predict_route'))
-            distances, indices = index.search(user_embedding, 1)
-            best_distance_sq = distances[0][0]
-            # For normalized vectors, cosine similarity = 1 - (squared_distance/2)
-            confidence = 1 - (best_distance_sq / 2)
-            if confidence < 0.8:
-                flash("Sorry, can't recognize the image. Can you please provide the name instead?")
-                return redirect(url_for('predict_route'))
-            match_index = indices.flatten()[0]
-            result = product_names[match_index]
-        except Exception as e:
-            flash(f"Error processing image: {e}")
+            result = future.result(timeout=30)  # Allow up to 30 seconds for processing
+        except TimeoutError:
+            flash("The server is busy, please try again later.")
             return redirect(url_for('predict_route'))
-    
     return render_template("predict.html", result=result)
 
 # -------- Unlearn Route --------
 @app.route('/unlearn', methods=['GET', 'POST'])
 def unlearn_route():
-    global index, product_names
     """
     Unlearn page:
-      - The user enters a label to unlearn.
-      - Upon confirmation, all embeddings for that label are removed and the FAISS index is rebuilt.
+      - The user enters a label to remove.
+      - All embeddings for that label are removed and the FAISS index is rebuilt.
     """
+    global index, product_names
     if request.method == 'POST':
         label_to_remove = request.form.get("unlearn_label")
         if not label_to_remove:
