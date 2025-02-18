@@ -322,7 +322,7 @@ def unlearn_route():
 # ---------------------------
 # Main Entry Point
 # ---------------------------
-if _name_ == '_main_':
+if __name__ == '__main__':
     load_training_data()
-    # Run without reloader to keep global variables persistent.
-    app.run(debug=True, use_reloader=False)
+    port = int(os.environ.get('PORT', 5000))
+    app.run(debug=False, host='0.0.0.0', port=port, use_reloader=False)
