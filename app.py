@@ -9,16 +9,11 @@ from PIL import Image
 from flask import Flask, request, redirect, url_for, flash, render_template, jsonify
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from queue import Queue
-from waitress import serve
-from flask_cors import cross_origin
+from flask_cors import CORS, cross_origin
 
+# Correct the variable name for Flask initialization
 app = Flask(__name__)
 CORS(app, origins=["*"])
-
-# Alternatively, to enable CORS for only specific routes:
-# from flask_cors import cross_origin
-# @app.route('/api/predict', methods=['POST'])
-# @cross_origin()  # Enable CORS for just this route
 
 # Set environment variable to avoid OpenMP duplicate runtime warnings.
 os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'
@@ -30,16 +25,14 @@ INDEX_FILE = "faiss_index.index"
 PRODUCT_NAMES_FILE = "product_names.pkl"
 
 # ---------------------------
-# Flask App Configuration
-# ---------------------------
-app = Flask(__name__, template_folder="templates", static_folder="static")
-app.secret_key = "replace_this_with_a_random_secret_key"  # Change for production
-
-# ---------------------------
 # Global Variables & Model Setup
 # ---------------------------
 device = "cuda" if torch.cuda.is_available() else "cpu"
-model, preprocess = clip.load("ViT-B/32", device=device)
+try:
+    model, preprocess = clip.load("ViT-B/32", device=device)
+except Exception as e:
+    app.logger.error(f"Failed to load CLIP model: {e}")
+    model, preprocess = None, None
 embedding_dim = 512  # Embedding dimension for ViT-B/32
 
 # Create a FAISS index for fast similarity search.
@@ -90,6 +83,8 @@ def compute_embedding(pil_image):
     Given a PIL image, preprocess it and compute its CLIP embedding.
     Returns a normalized numpy array of shape (1, embedding_dim).
     """
+    if model is None or preprocess is None:
+        raise RuntimeError("CLIP model not initialized.")
     image_input = preprocess(pil_image).unsqueeze(0).to(device)
     with torch.no_grad():
         embedding = model.encode_image(image_input).cpu().numpy().astype(np.float32)
@@ -100,19 +95,23 @@ def compute_embedding(pil_image):
 # Image Processing for Prediction in a Separate Thread
 # ---------------------------
 def process_image(file):
-    image_bytes = file.read()
-    pil_image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-    user_embedding = compute_embedding(pil_image)
-    if index.ntotal == 0:
-        return "No training data available. Please train the model first!"
-    distances, indices = index.search(user_embedding, 1)
-    best_distance_sq = distances[0][0]
-    # For normalized embeddings, cosine similarity = 1 - (squared_distance/2)
-    confidence = 1 - (best_distance_sq / 2)
-    if confidence < 0.8:
-        return "Sorry, can't recognize the image. Can you please provide the name instead?"
-    match_index = indices.flatten()[0]
-    return product_names[match_index]
+    try:
+        image_bytes = file.read()
+        pil_image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+        user_embedding = compute_embedding(pil_image)
+        if index.ntotal == 0:
+            return "No training data available. Please train the model first!"
+        distances, indices = index.search(user_embedding, 1)
+        best_distance_sq = distances[0][0]
+        # For normalized embeddings, cosine similarity = 1 - (squared_distance/2)
+        confidence = 1 - (best_distance_sq / 2)
+        if confidence < 0.8:
+            return "Sorry, can't recognize the image. Can you please provide the name instead?"
+        match_index = indices.flatten()[0]
+        return product_names[match_index]
+    except Exception as e:
+        app.logger.error(f"Error processing image: {e}")
+        return f"Error processing image: {str(e)}"
 
 # ---------------------------
 # Routes
@@ -125,14 +124,6 @@ def home():
 # -------- Training Route --------
 @app.route('/train', methods=['GET', 'POST'])
 def train_route():
-    """
-    Training page offers:
-      - Single Label Training (enter a label and upload one or more images)
-      - Bulk Training with two modes:
-          • "single" bulk mode: all files come from one folder (the folder name is used as the label)
-          • "subfolders" mode: each file’s parent folder is used as the label
-    """
-    global index, product_names
     if request.method == 'POST':
         train_mode = request.form.get("train_mode")
         if train_mode == "single":
@@ -177,7 +168,6 @@ def train_route():
             
             count = 0
             if bulk_mode == "single":
-                # Expect all files come from one folder; extract folder name automatically.
                 folder_names = set()
                 for file in files:
                     if "/" in file.filename:
@@ -254,7 +244,7 @@ def predict_route():
 
 # -------- New API Prediction Route (for client module) --------
 @app.route('/api/predict', methods=['POST'])
-@cross_origin(origin='localhost', headers=['Content-Type', 'Authorization'])  # Enable CORS for this route
+@cross_origin(origin='localhost', headers=['Content-Type', 'Authorization'])
 def api_predict():
     if 'test_image' not in request.files:
         return jsonify({"error": "No image provided"}), 400
@@ -270,16 +260,9 @@ def api_predict():
 
     return jsonify({"result": result})
 
-
 # -------- Unlearn Route --------
 @app.route('/unlearn', methods=['GET', 'POST'])
 def unlearn_route():
-    """
-    Unlearn page:
-      - The user enters a label to remove.
-      - All embeddings for that label are removed and the FAISS index is rebuilt.
-    """
-    global index, product_names
     if request.method == 'POST':
         label_to_remove = request.form.get("unlearn_label")
         if not label_to_remove:
