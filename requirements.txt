@@ -1,6 +1,6 @@
 Flask==2.2.5
-torch==2.0.1
+torch
 faiss-cpu==1.7.4
-clip-by-openai==1.0.1
+clip-by-openai
 Pillow==10.0.1
 
