@@ -13,6 +13,7 @@ from flask_cors import CORS, cross_origin
 
 # Correct the variable name for Flask initialization
 app = Flask(__name__)
+app.config['SECRET_KEY'] = 'fastians'
 CORS(app, origins=["*"])
 
 # Set environment variable to avoid OpenMP duplicate runtime warnings.
