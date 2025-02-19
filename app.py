@@ -264,6 +264,8 @@ def api_predict():
 # -------- Unlearn Route --------
 @app.route('/unlearn', methods=['GET', 'POST'])
 def unlearn_route():
+    global index, product_names
+
     if request.method == 'POST':
         label_to_remove = request.form.get("unlearn_label")
         if not label_to_remove:
