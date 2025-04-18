@@ -24,9 +24,6 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 model, preprocess = clip.load("ViT-B/32", device=device)
 
 def compute_clip_embedding(pil_image):
-    """
-    Compute CLIP embedding for a given PIL image and normalize it.
-    """
     image_input = preprocess(pil_image).unsqueeze(0).to(device)
     with torch.no_grad():
         embedding = model.encode_image(image_input).cpu().numpy().astype(np.float32)
@@ -40,172 +37,161 @@ app.permanent_session_lifetime = timedelta(days=30)
 CORS(app, supports_credentials=True)
 
 # MongoDB Connection
-MONGO_URI = os.environ.get("MONGO_URI", "mongodb+srv://tahamishi12:fastians@cluster0.1fal6.mongodb.net/")
-if not MONGO_URI:
-    raise ValueError("MongoDB URI is missing. Please set MONGO_URI in your environment variables.")
-
+MONGO_URI = os.environ.get(
+    "MONGO_URI",
+    "mongodb+srv://tahamishi12:fastians@cluster0.1fal6.mongodb.net/"
+)
 client = pymongo.MongoClient(MONGO_URI)
 db = client["user_database"]
 users_collection = db["users"]
 
 # Flask-Session Configuration
-app.config["SESSION_TYPE"] = "mongodb"
-app.config["SESSION_PERMANENT"] = True
-app.config["SESSION_USE_SIGNER"] = True
-app.config["SESSION_MONGODB"] = client
-app.config["SESSION_MONGODB_DB"] = "user_database"
-app.config["SESSION_MONGODB_COLLECTION"] = "sessions"
-app.config["SESSION_COOKIE_SAMESITE"] = "None"
-app.config["SESSION_COOKIE_SECURE"] = True
+app.config.update({
+    "SESSION_TYPE":       "mongodb",
+    "SESSION_PERMANENT":  True,
+    "SESSION_USE_SIGNER": True,
+    "SESSION_MONGODB":    client,
+    "SESSION_MONGODB_DB": "user_database",
+    "SESSION_MONGODB_COLLECTION": "sessions",
+    "SESSION_COOKIE_SAMESITE":   "None",
+    "SESSION_COOKIE_SECURE":     True,
+})
 Session(app)
 
-# Environment variables
-CHATBOT_URL = os.environ.get("CHATBOT_URL", "https://chat.aezenai.com")
-IMAGE_PREDICTION_API = os.environ.get("IMAGE_PREDICTION_API", "https://imagexclassifier-1.onrender.com/api/predict")
+# External APIs
+CHATBOT_URL          = os.environ.get("CHATBOT_URL", "https://chat.aezenai.com")
+IMAGE_PREDICTION_API = os.environ.get(
+    "IMAGE_PREDICTION_API",
+    "https://imagexclassifier-1.onrender.com/api/predict"
+)
 
 # Debug Browser Versions
 try:
-    chromium_version = subprocess.check_output(["chromium", "--version"]).decode().strip()
-    chromedriver_version = subprocess.check_output(["chromedriver", "--version"]).decode().strip()
-    print(f"Chromium Version: {chromium_version}")
-    print(f"ChromeDriver Version: {chromedriver_version}")
+    print("Chromium:", subprocess.check_output(["chromium","--version"]).decode().strip())
+    print("ChromeDriver:", subprocess.check_output(["chromedriver","--version"]).decode().strip())
 except Exception as e:
-    print(f"Error fetching browser versions: {str(e)}")
+    print("Browser version check failed:", e)
 
-# --- Session Helpers ---
+# Persist query‑string email into session
 @app.before_request
 def set_email_from_query():
     if not session.get("user_email"):
         email = request.args.get("email")
         if email:
             session["user_email"] = email
-            print(f"Email set from query parameter: {email}")
 
-# --- Routes ---
+# --- Routes matching your templates ---
 @app.route("/")
-def index():
-    print("Serving index.html")
+def home():
     return render_template("index.html")
+
+@app.route("/train")
+def train_route():
+    return render_template("train.html")
+
+@app.route("/predict")
+def predict_route():
+    return render_template("predict.html")
+
+@app.route("/unlearn")
+def unlearn_route():
+    return render_template("unlearn.html")
 
 @app.route("/check-user", methods=["GET"])
 def check_user():
-    email = session.get("user_email")
-    print(f"Checking user session: {email}")
-    return jsonify({"email": email})
+    return jsonify({"email": session.get("user_email")})
 
 @app.route("/register-email", methods=["POST"])
 def register_email():
-    try:
-        data = request.json
-        email = data.get("email")
-        print(f"Received email for registration: {email}")
-        if not email:
-            return jsonify({"error": "Email is required"}), 400
-        users_collection.insert_one({"email": email})
-        session["user_email"] = email
-        session.permanent = True
-        print(f"Session created for email: {email}")
-        return jsonify({"message": "Email registered successfully", "success": True})
-    except Exception as e:
-        print(f"Error registering email: {str(e)}")
-        return jsonify({"error": str(e)}), 500
+    data = request.json or {}
+    email = data.get("email")
+    if not email:
+        return jsonify({"error": "Email is required"}), 400
+
+    users_collection.insert_one({"email": email})
+    session["user_email"] = email
+    session.permanent = True
+    return jsonify({"message": "Email registered successfully", "success": True})
 
 @app.route("/upload-image", methods=["POST"])
 def upload_image():
+    if "image" not in request.files:
+        return jsonify({"error": "No image provided"}), 400
+
+    # Ensure user email in session or form
+    email = session.get("user_email")
+    if not email:
+        new_email = (
+            request.form.get("email")
+            or (request.get_json() or {}).get("email")
+        )
+        if not new_email:
+            return jsonify({"error": "User email not found"}), 400
+        if not users_collection.find_one({"email": new_email}):
+            users_collection.insert_one({"email": new_email})
+        session["user_email"] = new_email
+        session.permanent = True
+        email = new_email
+
+    image = request.files["image"]
+    filename = secure_filename(image.filename)
+    upload_folder = os.path.join("static", "uploads")
+    os.makedirs(upload_folder, exist_ok=True)
+    filepath = os.path.join(upload_folder, filename)
+    image.save(filepath)
+
+    pil_image = Image.open(filepath).convert("RGB")
+    embedding = compute_clip_embedding(pil_image)
+
     try:
-        print("Received image upload request.")
-        if "image" not in request.files:
-            return jsonify({"error": "No image provided"}), 400
-
-        # Ensure user email in session or form
-        email = session.get("user_email")
-        if not email:
-            new_email = request.form.get("email") or request.args.get("email")
-            if not new_email and request.is_json:
-                data = request.get_json()
-                new_email = data.get("email") if data else None
-            if new_email:
-                if not users_collection.find_one({"email": new_email}):
-                    users_collection.insert_one({"email": new_email})
-                session["user_email"] = new_email
-                session.permanent = True
-                email = new_email
-            else:
-                return jsonify({"error": "User email not found"}), 400
-
-        image = request.files["image"]
-        print(f"Uploading image for email: {email}")
-
-        # Save locally and compute embedding
-        filename = secure_filename(image.filename)
-        upload_folder = os.path.join("static", "uploads")
-        os.makedirs(upload_folder, exist_ok=True)
-        filepath = os.path.join(upload_folder, filename)
-        image.save(filepath)
-        pil_image = Image.open(filepath).convert("RGB")
-        embedding = compute_clip_embedding(pil_image)
-
-        # Optionally use external API
         with open(filepath, "rb") as img_file:
-            response = requests.post(
+            resp = requests.post(
                 IMAGE_PREDICTION_API,
                 files={"test_image": img_file}
             )
-        response.raise_for_status()
-        result = response.json().get("result")
-        if not result:
-            return jsonify({"error": "No result from model"}), 500
-
-        automate_chatbot(email, result)
-        return jsonify({"message": "Image processed and sent to chatbot", "popup": True})
-
-    except requests.exceptions.RequestException as e:
-        print(f"API request failed: {str(e)}")
-        return jsonify({"error": f"API request failed: {str(e)}"}), 500
+            resp.raise_for_status()
+            result = resp.json().get("result")
+            if not result:
+                raise ValueError("No result from model")
     except Exception as e:
-        print(f"Error processing image: {str(e)}")
         return jsonify({"error": str(e)}), 500
+
+    automate_chatbot(email, result)
+    return jsonify({"message": "Image processed and sent to chatbot", "popup": True})
 
 # --- Chatbot Automation ---
 def automate_chatbot(email, image_name):
-    print(f"Starting chatbot automation for email: {email}, image: {image_name}")
     options = Options()
     options.add_argument("--headless")
     options.add_argument("--disable-gpu")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
-
     driver = webdriver.Chrome(options=options)
+
     try:
         driver.get(CHATBOT_URL)
-        email_field = WebDriverWait(driver, 20).until(
+        WebDriverWait(driver, 20).until(
             EC.presence_of_element_located((By.NAME, "email"))
-        )
-        email_field.send_keys(email)
+        ).send_keys(email)
 
-        chat_button = WebDriverWait(driver, 20).until(
+        WebDriverWait(driver, 20).until(
             EC.element_to_be_clickable((By.CLASS_NAME, "Button_btn___t8GZ"))
-        )
-        chat_button.click()
+        ).click()
 
-        message_box = WebDriverWait(driver, 20).until(
+        WebDriverWait(driver, 20).until(
             EC.presence_of_element_located((By.CLASS_NAME, "ant-input"))
-        )
-        message_box.send_keys(f"give me buying link of {image_name} and its description")
+        ).send_keys(f"give me buying link of {image_name} and its description")
 
-        send_button = WebDriverWait(driver, 20).until(
+        WebDriverWait(driver, 20).until(
             EC.element_to_be_clickable((By.CLASS_NAME, "icon-send"))
-        )
-        send_button.click()
+        ).click()
 
         time.sleep(5)
     except Exception as e:
-        print(f"Error in chatbot automation: {str(e)}")
+        print("Chatbot automation error:", e)
     finally:
         driver.quit()
-        print("Browser closed successfully.")
 
 # --- Run Server ---
 if __name__ == "__main__":
-    print("Starting Flask server...")
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
