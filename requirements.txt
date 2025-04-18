@@ -1,10 +1,11 @@
 Flask
-torch 
-torchvision 
-faiss-cpu 
+torch
+torchvision
+faiss-cpu
 openai-clip
-Pillow 
-gunicorn 
-waitress 
+Pillow
+gunicorn
+waitress
 flask-cors
 Flask-Session
+pymongo
