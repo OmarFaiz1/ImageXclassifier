@@ -1,15 +1,19 @@
 Flask
+flask-cors
+Flask-Session
+gunicorn
+waitress
 torch
 torchvision
 faiss-cpu
 openai-clip
 Pillow
-gunicorn
-waitress
-flask-cors
-Flask-Session
+numpy
+ftfy
+regex
+tqdm
 pymongo
-dnspython            # for mongodb+srv URIs
-requests             # HTTP calls
-selenium             # browser automation
-chromedriver-binary  # bundles chromedriver executable
+dnspython
+requests
+selenium
+chromedriver-binary
