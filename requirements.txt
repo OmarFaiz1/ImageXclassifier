@@ -7,3 +7,4 @@ Pillow
 gunicorn 
 waitress 
 flask-cors
+Flask-Session
