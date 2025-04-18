@@ -9,3 +9,7 @@ waitress
 flask-cors
 Flask-Session
 pymongo
+dnspython            # for mongodb+srv URIs
+requests             # HTTP calls
+selenium             # browser automation
+chromedriver-binary  # bundles chromedriver executable
